@@ -1,7 +1,6 @@
-use std::{rc::Rc, sync::{atomic::AtomicIsize, Arc}, thread, time::{Duration, Instant}};
+use std::{sync::{atomic::AtomicIsize, Arc},  time::{Duration, Instant}};
 
-use modular_agents::{agent::{Agent, AgentRunStatus}, state::State};
-use par_map::ParMap;
+use modular_agents::{agent::Agent, state::State};
 
 fn benchmark()->Duration{
     let now = Instant::now();
@@ -50,8 +49,8 @@ fn benchmark()->Duration{
     }
     let then = Instant::now() - now;
     let now2 = Instant::now();
-    use par_map::Map;
-    let _ = agents.into_iter().par_map(move |a| {
+
+    let _ = agents.into_iter().map(move |a| {
         let _ = a.finish();
 
     });
