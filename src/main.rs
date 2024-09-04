@@ -13,7 +13,7 @@ fn main(){
     struct FinishState;
 
     impl State<AgentStringData> for WorkState {
-        fn pick_and_execute_an_action(&self, _data: &Arc<AgentStringData>)->Option<Arc<dyn State<AgentStringData>>> {
+        fn pick_and_execute_an_action(self: Arc<WorkState>, _data: &Arc<AgentStringData>)->Option<Arc<dyn State<AgentStringData>>> {
             {
                 let s_guard = _data.my_stored_val.lock();
                 let mut s;

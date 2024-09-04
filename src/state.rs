@@ -8,7 +8,7 @@ pub trait State<Data>
     /// Requires access to a data object
     /// Returns None if the scheduler is finished with all work-in-progress
     /// If more work is to be done in some state S, then returns Ok(S)
-    fn pick_and_execute_an_action(&self, _data: &Arc<Data>)->Option<Arc<dyn State<Data>>> {
+    fn pick_and_execute_an_action(self: Arc<Self>, _data: &Arc<Data>)->Option<Arc<dyn State<Data>>> {
         None
     }
     /// Allows the state to auto-trigger an abort sequence
@@ -45,7 +45,7 @@ impl<T: Send + Sync + 'static> AgentStateMachine<T> {
     //pub fn advance_state(&mut self, data: &Arc<T>)->Option<Arc<dyn State<T>>> where Self : Sized {
     pub fn advance_state(&mut self, data: &Arc<T>)->bool where Self : Sized {
         
-        let next_state = self.cur.pick_and_execute_an_action(data);
+        let next_state = self.cur.clone().pick_and_execute_an_action(data);
         match next_state {
             Some(next_state) => {
                 //println!("More work still pending: {:?}->{:?}", &self.cur, &next_state);
