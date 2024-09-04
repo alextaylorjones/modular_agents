@@ -15,7 +15,7 @@ pub fn thread_info()->String{
 #[cfg(test)]
 mod tests {
     use std::{sync::{atomic::{AtomicIsize, AtomicUsize}, Arc, Mutex, RwLock, Weak}, thread::{self}, time::Duration};
-    use agent::{Agent, AgentRef, AgentRunStatus};
+    use agent::{Agent, AgentRef, AgentRunStatus, AgentThreadStatus};
     use agent_program::{AgentProgram, FromConfig};
     use message::{MessageTarget, StoresSingle};
     
@@ -732,13 +732,206 @@ mod tests {
                         assert!(*result_data.repeats.read().unwrap() == 0);
                     },
                     Err(err) => {
-                        assert!(false, "Agent program failed to return data as expected. {:?}",err);
+                        assert!(false, "Agent program failed to return data as expected");
                     },
                 }
             },
             Err(err)=>{
-                assert!(false, "Failed to get agent program {:?}",err);
+                assert!(false, "Failed to create agent program");
             }
         }
     }
+    #[test]
+    fn normative_agent_subagent(){
+        // struct Results {
+        //     pub success: usize,
+        //     pub failures: usize
+        // }
+        // struct AgentCreatorData {
+        //     a_vals: Vec<usize>,
+        //     b_vals: Vec<String>,
+        //     results: RwLock<Results>
+        // }
+        
+        // struct AgentAData {
+        //     my_val: RwLock<usize>
+        // }
+        // struct AgentBData {
+        //     my_str: RwLock<String>
+        // }
+        // impl FromConfig<usize> for AgentAData {
+        //     fn from_config(c: &usize)->Arc<Self> {
+        //         Arc::new(AgentAData {my_val: RwLock::new(*c)})
+        //     }
+        
+        //     fn start_state(_c: &usize)->Arc<dyn State<Self>> {
+        //         Arc::new(AReadState)
+        //     }
+        // }
+        // impl FromConfig<String> for AgentBData {
+        //     fn from_config(c: &String)->Arc<Self> {
+        //         Arc::new(AgentBData {my_str: RwLock::new(c.clone())})
+        //     }
+        
+        //     fn start_state(_c: &String)->Arc<dyn State<Self>> {
+        //         Arc::new(BReadState)
+        //     }
+        // }
+    
+        // struct CreatorInitState;
+        // impl State<AgentCreatorData> for CreatorInitState {
+        //     fn pick_and_execute_an_action(self: Arc<Self>, data: &Arc<AgentCreatorData>)->Option<Arc<dyn State<AgentCreatorData>>> {
+        //         // Create our agents
+        //         let mut a_refs = Vec::new();
+        //         let mut b_refs = Vec::new();
+        //         // Start the a's
+        //         for a in &data.a_vals {
+        //             let agent = AgentProgram::<usize,AgentAData>::start(a);
+        //             if let Ok(agent) = agent {
+        //                 a_refs.push(agent);
+        //             }
+        //         }
+        //         //Start the b's
+        //         for b in &data.b_vals {
+        //             let agent = AgentProgram::<String,AgentBData>::start(b);
+        //             if let Ok(agent) = agent {
+        //                 b_refs.push(agent);
+        //             }
+        //         }
+        //         // Move to the management state
+        //         Some(Arc::new(CreatorManageState {
+        //             a_refs,
+        //             b_refs
+        //         }))
+        //     }
+        // }
+    
+    
+        // struct CreatorManageState{
+        //     a_refs: Vec<AgentProgram<usize, AgentAData>>,
+        //     b_refs: Vec<AgentProgram<String, AgentBData>>,
+        // }
+    
+        // impl State<AgentCreatorData> for CreatorManageState {
+        //     fn pick_and_execute_an_action(self: Arc<Self>, data: &Arc<AgentCreatorData>)->Option<Arc<dyn State<AgentCreatorData>>> {
+        //         // Manually check the data for the created agents
+        //         for (a,a_at_other) in data.a_vals.iter().zip(&self.a_refs) {
+        //             // check to see if processing occurred correctly
+        //             if *a * 2 != *a_at_other.get_ref().data.my_val.read().unwrap() {
+        //                 println!("Some a is not finished");
+        //                 return Some(self);
+        //             }
+        //         }
+        //         for (b,b_at_other) in data.b_vals.iter().zip(&self.b_refs) {
+        //             // check to see if processing occurred correctly
+        //             let mut s = b_at_other.get_ref().data.my_str.read().unwrap().clone();
+        //             s.push_str("mod");
+        //             if b != &s {
+        //                 println!("Some b is not finished");
+        //                 return Some(self);
+        //             }
+        //         }
+        //         Some(Arc::new(CreatorCleanupStage {
+        //             a_refs: RwLock::new(self.a_refs.clone()),
+        //             b_refs: RwLock::new(self.b_refs.clone())
+        //         }))
+        //     }
+        // }
+        // struct CreatorCleanupStage{
+        //     a_refs: RwLock<Vec<AgentProgram<usize, AgentAData>>>,
+        //     b_refs: RwLock<Vec<AgentProgram<String, AgentBData>>>,
+        // }
+        // impl State<AgentCreatorData> for CreatorCleanupStage {
+        //     fn pick_and_execute_an_action(self: Arc<Self>, _data: &Arc<AgentCreatorData>)->Option<Arc<dyn State<AgentCreatorData>>> {
+        //         let mut results = Results { success: 0, failures: 0 };
+        //         let mut still_running_a = Vec::new();
+        //         match self.a_refs.write() {
+        //             Ok(mut a_agents) => {
+        //                 let n = a_agents.len();
+        //                 for i in 0..n {
+        //                     if let Some(agent) = a_agents.pop() {
+        //                         match agent.complete() {
+        //                             Ok(_) => {},
+        //                             Err(err) => {
+        //                                 match err {
+        //                                     modular_agents::agent_program::AgentProgramError::AgentRunning => {
+        //                                         still_running_a.push(agent);
+        //                                     },
+        //                                     _ => {
+        //                                         results.failures += 1;
+        //                                     }
+        //                                 }
+        //                             },
+        //                         }
+        //                     }
+    
+        //                 }
+        //             },
+        //             Err(_) => todo!(),
+        //         }
+        //         None
+        //     }
+        // }
+        
+        // struct AReadState;
+        // impl State<AgentAData> for AReadState {
+        //     fn pick_and_execute_an_action(self: Arc<Self>, _data: &Arc<AgentAData>)->Option<Arc<dyn State<AgentAData>>> {
+        //         *_data.my_val.write().unwrap() *= 2;
+        //         Some(Arc::new(FinishState))
+        //     }
+        // }
+        // struct BReadState;
+        // impl State<AgentBData> for BReadState {
+        //     fn pick_and_execute_an_action(self: Arc<Self>, _data: &Arc<AgentBData>)->Option<Arc<dyn State<AgentBData>>> {
+        //         _data.my_str.write().unwrap().push_str("mod");
+        //         Some(Arc::new(FinishState))
+        //     }
+        // }
+        // // Shared finish state
+        // struct FinishState;
+        // impl<T: Send + Sync> State<T> for FinishState {
+        //     fn is_abort_state(&self)->bool {
+        //         true
+        //     }
+        // }
+    }
+    #[test]
+    fn normative_agent_program_fails(){
+        let config = &0;
+        struct MyData {
+            _val: usize
+        }
+        struct MyState;
+        impl State<MyData> for MyState {
+            fn pick_and_execute_an_action(self: Arc<Self>, _data: &Arc<MyData>)->Option<Arc<dyn State<MyData>>> {
+                println!("Running scheduler");
+                None
+            }
+        }
+        impl FromConfig<usize> for MyData {
+            fn from_config(c: &usize)->Arc<Self> {
+                Arc::new(MyData {_val: *c})
+            }
+        
+            fn start_state(_c: &usize)->Arc<dyn State<Self>> {
+                Arc::new(MyState)
+            }
+        }
+        let ap = AgentProgram::<usize, MyData>::start(config);
+        let agent_program;
+        match ap {
+            Ok(_agent_program) => {
+                agent_program = _agent_program;
+            },
+            Err(err) => {
+                assert!(false,"Failed to create program");
+                return;
+            },
+        }
+        assert!(agent_program.get_status() == AgentThreadStatus::RunningNotJoined);
+            
+        assert!(agent_program.get_status() == AgentThreadStatus::RunningNotJoined);
+
+    }
+    // Todo: Agent upgrade
 }

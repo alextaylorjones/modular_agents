@@ -43,7 +43,7 @@ pub trait State<Data>
 //     }
 // }
 
-
+pub type SchedulerReturn<T> = Option<Arc<dyn State<T>>>;
 /// Stores a representation of the current state and controls how the state evolves 
 pub struct AgentStateMachine<T> {
     cur: Arc<dyn State<T>>

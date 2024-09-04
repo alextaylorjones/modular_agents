@@ -36,20 +36,12 @@ pub enum AgentRunStatus {
     Success
 }
 
-
-// impl<T: Send + Sync> MsgTarget for Agent<T> {
-//     fn state_changed(&self)->bool{
-//         match &self.permit_store {
-//             Some(store) => {
-//                 store.release_permit();
-//                 true
-//             },
-//             None => {
-//                 false
-//             },
-//         }
-//     }
-// }
+#[derive(Debug, PartialEq)]
+pub enum AgentThreadStatus {
+    NonStarted,
+    RunningNotJoined,
+    Joined
+}
 
 pub struct AgentRef<Data> {
     pub data: Arc<Data>,
@@ -108,6 +100,20 @@ impl<Data: Send + Sync + 'static> Agent<Data> {
     /// Determines if the agent holds a valid thread
     pub fn has_valid_handle(&self)->bool{
         self.handle.is_some() && self.run_status.is_none() && self.permit_store.is_some()
+    }
+    /// Checks if the scheduler thread is running (exists, but is not joined). Do not build synchronization around this.
+    pub fn get_thread_status(&self)-> AgentThreadStatus {
+        match &self.handle {
+            Some(handle) => {
+                match handle.is_finished() {
+                    true => AgentThreadStatus::Joined,
+                    false => AgentThreadStatus::RunningNotJoined,
+                } 
+            },
+            None => {
+                AgentThreadStatus::NonStarted
+            },
+        }
     }
     /// Immediately tries to finish the agent thread
     pub fn finish(self)->Result<AgentRunStatus,String>{
