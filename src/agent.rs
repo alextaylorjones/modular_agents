@@ -4,16 +4,19 @@ use crate::{permit_store::PermitStore, state::{AgentStateMachine, State}};
 
 /// The central structure for ownership of agent resources
 pub struct Agent<Data: Send + Sync + 'static> {
+    // Guaranteed data
     start_state: Arc<dyn State<Data>>,
     data_store: Arc<Data>,
     abort: Arc<AtomicBool>,
+    // Data available after running
     permit_store: Option<PermitStore>,
     handle: Option<JoinHandle<AgentRunStatus>>,
     run_status: Option<AgentRunStatus>,
 }
+
 /// Clones the references to the start state and the data store 
 /// Note: Will not copy over any abort information or any thread-specific details
-impl<Data: Send + Sync + 'static> Clone for Agent<Data> {
+impl<Data: Send + Sync> Clone for Agent<Data> {
     fn clone(&self) -> Self {
         Self { 
             start_state: self.start_state.clone(), 
@@ -33,6 +36,31 @@ pub enum AgentRunStatus {
     Success
 }
 
+
+// impl<T: Send + Sync> MsgTarget for Agent<T> {
+//     fn state_changed(&self)->bool{
+//         match &self.permit_store {
+//             Some(store) => {
+//                 store.release_permit();
+//                 true
+//             },
+//             None => {
+//                 false
+//             },
+//         }
+//     }
+// }
+
+pub struct AgentRef<Data> {
+    pub data: Arc<Data>,
+    pub permit: PermitStore
+}
+impl<Data> Clone for AgentRef<Data> {
+    fn clone(&self) -> Self {
+        Self { data: self.data.clone(), permit: self.permit.clone() }
+    }
+}
+
 impl<Data: Send + Sync + 'static> Agent<Data> {
     pub fn new(start_state: Arc<dyn State<Data>>, data_store: Arc<Data>)->Self{
         Agent { 
@@ -44,6 +72,19 @@ impl<Data: Send + Sync + 'static> Agent<Data> {
             run_status: None
         }
     }
+
+    /// Get a clone of the agent's data
+    pub fn get_data(&self)->Arc<Data>{
+        self.data_store.clone()
+    }
+    /// Get a reference to the agent
+    pub fn get_ref(&self)->Option<AgentRef<Data>>{
+        if let Some(permit_store) = &self.permit_store {
+            return Some(AgentRef { data: self.get_data(), permit: permit_store.clone() });
+        }
+        None
+    }
+    /// Give a permit to the permit store to indicate some state has changed. This will prompt the scheduler to run again, if not aborted.
     pub fn state_changed(&self)->bool{
         match &self.permit_store {
             Some(store) => {
@@ -89,6 +130,7 @@ impl<Data: Send + Sync + 'static> Agent<Data> {
     /// Creates the agent's work thread and start the scheduler
     pub fn run(&mut self) {
         let (tx,rx) = channel();
+        // Clone resources we will send to the new thread
         let abort_signal = self.abort.clone();
         let data = self.data_store.clone();
         let start = self.start_state.clone();
@@ -105,9 +147,8 @@ impl<Data: Send + Sync + 'static> Agent<Data> {
             }
             while !abort_signal.load(std::sync::atomic::Ordering::Relaxed) {
                 permits.acquire_permit();
+                // Advance the state (calls the scheduler on the current state)
                 let mut next_state = asm.advance_state(&data);
-                // Note: the asm could be in the abort state, and we would 
-                //while next_state.is_some() && !abort_signal.load(std::sync::atomic::Ordering::Relaxed){
                 while next_state && !abort_signal.load(std::sync::atomic::Ordering::Relaxed){
                     // Advance the state
                     next_state = asm.advance_state(&data);

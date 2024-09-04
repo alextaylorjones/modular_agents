@@ -1,66 +1,76 @@
-use std::{sync::{Arc, Mutex}, thread, time::Duration};
+use std::sync::{Arc, RwLock};
 
-use modular_agents::{agent::{Agent, AgentRunStatus}, state::State};
+use modular_agents::{agent_program::{AgentProgram, FromConfig}, state::State};
 
 fn main(){
-    struct AgentStringData {
-        my_stored_val: Arc<Mutex<String>>,
+    struct SimpleAgentConfig<'a> {
+        name: &'a str
     }
-
-    #[derive(Debug)]
-    struct WorkState;
-    #[derive(Debug)]
+    struct SimpleAgentData {
+        name: String,
+        repeats: RwLock<usize>,
+    }
+    struct InitState;
     struct FinishState;
-
-    impl State<AgentStringData> for WorkState {
-        fn pick_and_execute_an_action(self: Arc<WorkState>, _data: &Arc<AgentStringData>)->Option<Arc<dyn State<AgentStringData>>> {
-            {
-                let s_guard = _data.my_stored_val.lock();
-                let mut s;
-                match s_guard {
-                    Ok(val) => {
-                        s = val;
-                    },
-                    Err(err) => {
-                        println!("Something was poisoned! {:?}", err);
-                        return Some(Arc::new(FinishState)); 
-                    },
-                }
-                println!("[{:?}]?Current string: {}",thread::current().id(),s);
-                let n = s.len()-1;
-                if n == 0 {
-                    return Some(Arc::new(FinishState));
-                }
-                let _ = s.split_off(n);                    
-                if s.len() > 0 {
-                    Some(Arc::new(WorkState))
-                }
-                else {
-                    Some(Arc::new(FinishState))
-                }
-            }
-        }
-    }
-
-    impl State<AgentStringData> for FinishState {
+    impl State<SimpleAgentData> for FinishState{
         fn is_abort_state(&self)->bool {
             true
         }
     }
-    let start_state = Arc::new(WorkState);
-    let a1_data = AgentStringData {my_stored_val: Arc::new(Mutex::new(String::from("this is the string to process")))};
-    let data_store = Arc::new(a1_data);
-    let mut a1 = Agent::new(start_state, data_store);
-    let mut a2 = a1.clone();
+    impl State<SimpleAgentData> for InitState {
+        fn pick_and_execute_an_action(self: Arc<Self>, data: &Arc<SimpleAgentData>)->Option<Arc<dyn State<SimpleAgentData>>> {
+
+            let repeats;
+            match data.repeats.read() {
+                Ok(_reader) => {
+                    repeats = *_reader;
+                },
+                Err(err) => {
+                    println!("Reader is poisoned {}, reviving", err.to_string());
+                    data.repeats.clear_poison();
+                    return Some(self);
+                },
+            }              
+            println!("[{}] Repeat count = {}", &data.name, repeats);
+            match data.repeats.write(){
+                Ok(mut writer) => {
+                    *writer -= 1;
+                },
+                Err(err) => {
+                    println!("Writer is poisoned {}, reviving", err.to_string());
+                    data.repeats.clear_poison();
+                    return Some(self);
+                },
+            }
+
+            if repeats > 1 { //we did a decrement already (or panicked)
+                Some(self)
+            } else {
+                Some(Arc::new(FinishState))
+            }
+        }
+    }
+    impl<'a> FromConfig<SimpleAgentConfig<'a>> for SimpleAgentData {
+        fn from_config(c: &SimpleAgentConfig<'a>)->Arc<Self> {
+            Arc::new(SimpleAgentData {name: c.name.to_string(), repeats: RwLock::new(5)})
+        }
     
-    a1.run();
-    a2.run();
-    [&a1,&a2].map(|a| assert!(a.has_valid_handle()));
-    assert!(a1.state_changed());
-    assert!(a2.state_changed());
-    thread::sleep(Duration::from_millis(10));
-    a1.abort();
-    a2.abort();
-    let _ = a1.finish().is_ok_and(|status| status == AgentRunStatus::Success);
-    let _ = a2.finish().is_ok_and(|status| status == AgentRunStatus::Success);
+        fn start_state(_c: &SimpleAgentConfig<'a>)->Arc<dyn State<Self>> {
+            Arc::new(InitState)
+        }
+    }
+    
+    let config1 = SimpleAgentConfig { name: "agent 1"};
+    let ap = AgentProgram::<SimpleAgentConfig, SimpleAgentData>::start(&config1);
+    assert!(ap.is_ok());
+   
+    match ap {
+        Ok(agent_program) => {
+            agent_program.poke();
+            assert!(agent_program.complete().is_ok());
+        },
+        Err(err)=>{
+            assert!(false, "Failed to get agent program {:?}",err);
+        }
+    }
 }

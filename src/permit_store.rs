@@ -26,9 +26,9 @@ impl PermitStore {
     /// Should be called inside the thread that instantiated the store.
     pub fn acquire_permit(&self) {
         // Optional check -- make sure that only the owner thread can acquire the state
-        // if thread::current().id() != self.owner_thread.id() {
-        //     panic!("can't use state this way");
-        // }
+        if thread::current().id() != self.owner_thread.id() {
+            panic!("can't use state this way");
+        }
         while self.permits.load(Ordering::Relaxed) <= 0 {
             thread::park();
         }
