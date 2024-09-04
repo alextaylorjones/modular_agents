@@ -18,7 +18,6 @@ mod tests {
     use agent::{Agent, AgentRef, AgentRunStatus, AgentThreadStatus};
     use agent_program::{AgentProgram, FromConfig};
     use message::{MessageTarget, StoresSingle};
-    
     use state::State;
     
     use super::*;
@@ -585,16 +584,16 @@ mod tests {
 
         impl AgentRef<ReaderAgentDS> {
             pub fn msg_add_to_queue(&self, u: usize){
-                match self.data.read_queue.write() {
+                match self.clone_data().read_queue.write() {
                     Ok(mut q) => {
                         q.push(u);
                         
-                        self.permit.release_permit();
+                        self.state_changed();
                         
                         return;
                     },
                     Err(_) => {
-                        self.data.read_queue.clear_poison();
+                        self.clone_data().read_queue.clear_poison();
                         self.msg_add_to_queue(u);  
                     },
                 }                              
@@ -648,7 +647,7 @@ mod tests {
                 ia2.msg_add_to_queue(i);
             }
         }
-
+        // TODO: Make this wait until agent is finished
         thread::sleep(Duration::from_millis(10));
 
         ia1.abort();
@@ -731,12 +730,12 @@ mod tests {
                     Ok(result_data) => {
                         assert!(*result_data.repeats.read().unwrap() == 0);
                     },
-                    Err(err) => {
+                    Err(_err) => {
                         assert!(false, "Agent program failed to return data as expected");
                     },
                 }
             },
-            Err(err)=>{
+            Err(_err)=>{
                 assert!(false, "Failed to create agent program");
             }
         }
@@ -897,7 +896,13 @@ mod tests {
     }
     #[test]
     fn normative_agent_program_fails(){
-        let config = &0;
+        struct MyConfig {
+            val: usize
+        }
+        let config = MyConfig {
+            val: 0
+        };
+
         struct MyData {
             _val: usize
         }
@@ -905,33 +910,47 @@ mod tests {
         impl State<MyData> for MyState {
             fn pick_and_execute_an_action(self: Arc<Self>, _data: &Arc<MyData>)->Option<Arc<dyn State<MyData>>> {
                 println!("Running scheduler");
-                None
+                Some(Arc::new(AbortState))
             }
         }
-        impl FromConfig<usize> for MyData {
-            fn from_config(c: &usize)->Arc<Self> {
-                Arc::new(MyData {_val: *c})
+        struct AbortState;
+        impl State<MyData> for AbortState {
+            fn pick_and_execute_an_action(self: Arc<Self>, _data: &Arc<MyData>)->Option<Arc<dyn State<MyData>>> {
+                println!("Finished scheduler");
+                None
+            }
+            fn is_abort_state(&self)->bool {
+                true
+            }
+        }
+
+        impl FromConfig<MyConfig> for MyData {
+            fn from_config(c: &MyConfig)->Arc<Self> {
+                Arc::new(MyData {_val: c.val})
             }
         
-            fn start_state(_c: &usize)->Arc<dyn State<Self>> {
+            fn start_state(_c: &MyConfig)->Arc<dyn State<Self>> {
                 Arc::new(MyState)
             }
         }
-        let ap = AgentProgram::<usize, MyData>::start(config);
+        let ap = AgentProgram::<MyConfig, MyData>::start(&config);
         let agent_program;
         match ap {
             Ok(_agent_program) => {
                 agent_program = _agent_program;
             },
-            Err(err) => {
+            Err(_err) => {
                 assert!(false,"Failed to create program");
                 return;
             },
         }
+        // Before we poke the agent (i.e. send any messages and/or change status), should be running
         assert!(agent_program.get_status() == AgentThreadStatus::RunningNotJoined);
-            
-        assert!(agent_program.get_status() == AgentThreadStatus::RunningNotJoined);
-
+        agent_program.poke();
+        // Wait for the program to finish executing
+        thread::sleep(Duration::from_millis(10));
+        assert!(agent_program.get_status() == AgentThreadStatus::Joined);
+        assert!(agent_program.complete().is_ok());
     }
     // Todo: Agent upgrade
 }

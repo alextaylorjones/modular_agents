@@ -42,11 +42,11 @@ impl<Config, Data: Send + Sync + 'static + FromConfig<Config>> AgentProgram<Conf
             None => Err(AgentProgramError::NoRef),
         }
     }
-    
+    /// Signal the agent to abort. Non-blocking
     pub fn abort(&self){
         self.agent.abort();
     }
-    /// Abort the agent and wait for it to complete
+    /// Abort the agent and wait for it to complete. Blocking
     pub fn stop(self)->Result<Arc<Data>, AgentProgramError<Self>> {
         self.agent.abort();
         self.complete()
@@ -55,11 +55,10 @@ impl<Config, Data: Send + Sync + 'static + FromConfig<Config>> AgentProgram<Conf
     pub fn get_ref(&self)->AgentRef<Data>{
         self.agent_ref.clone()
     }
-
+    /// Check the status of the agent's scheduler thread
     pub fn get_status(&self)->AgentThreadStatus{
         self.agent.get_thread_status()
     }
-
 
     /// Wait for the agent to complete, returning a reference to the agent data
     pub fn complete(self)->Result<Arc<Data>, AgentProgramError<Self>>{
@@ -69,7 +68,7 @@ impl<Config, Data: Send + Sync + 'static + FromConfig<Config>> AgentProgram<Conf
             return Err(AgentProgramError::AgentRunning(self));
         }
 
-        // DISCLAIMER: Since we own `self`, and there is a strong reference count of one, 
+        //  DISCLAIMER: Since we own `self`, and there is a strong reference count of one, 
         //  then it should be impossible that another strong reference exists outside this function.
         //  However, it is possible that a weak reference could be upgraded in the time between the previous check, and the unwrap below
         //  Since we can't return `AgentProgramError::AgentRunning(self)` after doing `into_inner` because of a partial move
@@ -91,7 +90,7 @@ impl<Config, Data: Send + Sync + 'static + FromConfig<Config>> AgentProgram<Conf
         match agent.finish() {
             Ok(status) => {
                 if status == AgentRunStatus::Success {
-                    Ok(self.agent_ref.data)
+                    Ok(self.agent_ref.clone_data())
                 } else {
                     Err(AgentProgramError::AgentRunError(status))
                 }

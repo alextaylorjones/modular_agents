@@ -2,7 +2,7 @@
 use std::{sync::{atomic::AtomicBool, mpsc::channel, Arc}, thread::{self, JoinHandle}};
 use crate::{permit_store::PermitStore, state::{AgentStateMachine, State}};
 
-/// The central structure for ownership of agent resources
+/// The core structure for creating, managing, and running agents
 pub struct Agent<Data: Send + Sync + 'static> {
     // Guaranteed data
     start_state: Arc<dyn State<Data>>,
@@ -44,8 +44,16 @@ pub enum AgentThreadStatus {
 }
 
 pub struct AgentRef<Data> {
-    pub data: Arc<Data>,
-    pub permit: PermitStore
+    data: Arc<Data>,
+    permit: PermitStore
+}
+impl<T> AgentRef<T> {
+    pub fn clone_data(&self)->Arc<T> {
+        self.data.clone()
+    }
+    pub fn state_changed(&self){
+        self.permit.release_permit();
+    }
 }
 impl<Data> Clone for AgentRef<Data> {
     fn clone(&self) -> Self {
@@ -155,6 +163,7 @@ impl<Data: Send + Sync + 'static> Agent<Data> {
                 permits.acquire_permit();
                 // Advance the state (calls the scheduler on the current state)
                 let mut next_state = asm.advance_state(&data);
+                // We continue to call the scheduler as long as the scheduler returns a non-empty state
                 while next_state && !abort_signal.load(std::sync::atomic::Ordering::Relaxed){
                     // Advance the state
                     next_state = asm.advance_state(&data);
