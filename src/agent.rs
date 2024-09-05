@@ -1,7 +1,8 @@
 /// Test agent comment
 use std::{sync::{atomic::AtomicBool, mpsc::channel, Arc}, thread::{self, JoinHandle}};
-use crate::{permit_store::PermitStore, state::{AgentStateMachine, State}};
+use crate::{permit_store::PermitStore, state::{AgentStateMachine, State, StateChanged}};
 
+#[derive(Debug)]
 /// The core structure for creating, managing, and running agents
 pub struct Agent<Data: Send + Sync + 'static> {
     // Guaranteed data
@@ -43,6 +44,7 @@ pub enum AgentThreadStatus {
     Joined
 }
 
+#[derive(Debug)]
 pub struct AgentRef<Data> {
     data: Arc<Data>,
     permit: PermitStore
@@ -51,13 +53,24 @@ impl<T> AgentRef<T> {
     pub fn clone_data(&self)->Arc<T> {
         self.data.clone()
     }
-    pub fn state_changed(&self){
+}
+impl<T> StateChanged for AgentRef<T> {
+    fn state_changed(&self) {
         self.permit.release_permit();
     }
 }
 impl<Data> Clone for AgentRef<Data> {
     fn clone(&self) -> Self {
         Self { data: self.data.clone(), permit: self.permit.clone() }
+    }
+}
+
+
+impl<T: Send + Sync> StateChanged for Agent<T> {
+    fn state_changed(&self) {
+        if let Some(permit) = &self.permit_store {
+            permit.release_permit();
+        }
     }
 }
 
@@ -72,6 +85,16 @@ impl<Data: Send + Sync + 'static> Agent<Data> {
             run_status: None
         }
     }
+    pub fn new_arc(start_state: Arc<dyn State<Data>>, data_store: Arc<Data>)->Arc<Self>{
+        Arc::new(Agent { 
+            start_state, 
+            data_store, 
+            abort: Arc::new(AtomicBool::new(false)),
+            permit_store: None,
+            handle: None,
+            run_status: None
+        })
+    }
 
     /// Get a clone of the agent's data
     pub fn get_data(&self)->Arc<Data>{
@@ -84,18 +107,7 @@ impl<Data: Send + Sync + 'static> Agent<Data> {
         }
         None
     }
-    /// Give a permit to the permit store to indicate some state has changed. This will prompt the scheduler to run again, if not aborted.
-    pub fn state_changed(&self)->bool{
-        match &self.permit_store {
-            Some(store) => {
-                store.release_permit();
-                true
-            },
-            None => {
-                false
-            },
-        }
-    }
+
     /// Mark the agent for abort -- the scheduler will not run again (pending current finish)
     fn mark_for_abort(&self){
         self.abort.store(true, std::sync::atomic::Ordering::Relaxed);

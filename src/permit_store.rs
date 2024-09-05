@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::thread::{self, Thread};
 
 /// A thread-safe permit store. Allows multiple client threads to release permits, and a single owner thread to acquire permits.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PermitStore {
     permits: Arc<AtomicIsize>,
     owner_thread: Thread,

@@ -1,11 +1,12 @@
 use std::{marker::PhantomData, sync::Arc, thread};
 
-use crate::{agent::{Agent, AgentRef, AgentRunStatus, AgentThreadStatus}, state::State};
+use crate::{agent::{Agent, AgentRef, AgentRunStatus, AgentThreadStatus}, state::{State, StateChanged}};
 
 
 
 
 // A unified structure
+#[derive(Debug)]
 pub struct AgentProgram<Config, Data: Send + Sync + 'static> {
     agent: Arc<Agent<Data>>,
     agent_ref: AgentRef<Data>,
@@ -103,7 +104,6 @@ impl<Config, Data: Send + Sync + 'static + FromConfig<Config>> AgentProgram<Conf
 
     /// Indicate something has changed to poke the agent, then yield the current thread
     pub fn poke(&self){
-        self.agent.state_changed();
-        thread::yield_now();
+        self.agent_ref.state_changed();
     }
 }

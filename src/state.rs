@@ -3,7 +3,7 @@ use std::sync::Arc;
 /// A trait which we can our scheduler `pick_and_execute_an_action`. Optionally, we can overwrite the `is_abort_state` to signal
 /// that a state is a terminal state in the state machine. States should be lightweight and memory-less (leaving a state invalidates all state-specific memory)
 pub trait State<Data> 
-    where Self: Send + Sync, Data: Send + Sync {
+    where Self: Send + Sync + std::fmt::Debug, Data: Send + Sync {
     /// Perform a scheduler operation:
     /// Requires access to a data object
     /// Returns None if the scheduler is finished with all work-in-progress
@@ -17,6 +17,9 @@ pub trait State<Data>
     }
 }
 
+pub trait StateChanged {
+    fn state_changed(&self);
+}
 // pub const ABORT_STATE: Option<DoNothingAbort> = Some(DoNothingAbort);
 
 // pub struct DoNothingAbort;
@@ -55,8 +58,9 @@ impl<T: Send + Sync + 'static> AgentStateMachine<T> {
         AgentStateMachine { cur: start }
     }
     /// Run the state scheduler and advance the machine to the next state
-    pub fn advance_state(&mut self, data: &Arc<T>)->bool where Self : Sized {
+    pub fn advance_state(&mut self, data: &Arc<T>)->bool  {
         // We call the scheduler on a clone of the current state
+        
         let next_state = self.cur.clone().pick_and_execute_an_action(data);
         match next_state {
             Some(next_state) => {
