@@ -15,8 +15,8 @@ pub fn thread_info()->String{
 #[cfg(test)]
 mod normative_test {
     use std::{sync::{atomic::{AtomicIsize, AtomicUsize}, Arc, Mutex, RwLock, Weak}, thread::{self}, time::Duration};
-    use agent::{Agent, AgentRef, AgentRunStatus, AgentThreadStatus};
-    use agent_program::{AgentProgram, FromConfig};
+    use agent::{CloneAgent, AgentRef, AgentRunStatus, AgentThreadStatus};
+    use agent_program::{CloneAgentProgram, FromConfigClone};
     use agent_program_setup::normative_agent_program_messages::_create_master;
     use message::{MessageTarget, StoresSingle};
     use state::{State, StateChanged};
@@ -42,9 +42,9 @@ mod normative_test {
         let start_state = Arc::new(MyAgentStartState);
         let a1_data = AgentData {my_stored_val: 10};
         let data_store = Arc::new(a1_data);
-        let mut a1 = Agent::new(start_state, data_store);
+        let mut a1 = CloneAgent::new(start_state, data_store);
         
-        a1.run();
+        a1.run_clone();
         a1.state_changed();
         //thread::sleep(Duration::from_millis(10));
         a1.abort();
@@ -84,9 +84,9 @@ mod normative_test {
         let start_state = Arc::new(MyAgentStartState);
         let a1_data = AgentData {my_stored_val: AtomicUsize::new(10)};
         let data_store = Arc::new(a1_data);
-        let mut a1 = Agent::new(start_state, data_store);
+        let mut a1 = CloneAgent::new(start_state, data_store);
         
-        a1.run();
+        a1.run_clone();
         assert!(a1.has_valid_handle());
         a1.state_changed();
         thread::sleep(Duration::from_millis(10));
@@ -128,12 +128,12 @@ mod normative_test {
         let start_state = Arc::new(MyAgentStartState);
         let a1_data = AgentData {my_stored_val: AtomicUsize::new(30)};
         let data_store = Arc::new(a1_data);
-        let mut a1 = Agent::new(start_state, data_store.clone());
+        let mut a1 = CloneAgent::new(start_state, data_store.clone());
         // Make another consumer of the same data with the same behavior
         let mut a2 = a1.clone();
         
-        a1.run();
-        a2.run();
+        a1.run_clone();
+        a2.run_clone();
         [&a1,&a2].map(|a| assert!(a.has_valid_handle()));
         a1.state_changed();
         a2.state_changed();
@@ -186,9 +186,9 @@ mod normative_test {
         let start_state = Arc::new(WorkState);
         let a1_data = AgentStringData {my_stored_val: Arc::new(Mutex::new(String::from("this is the string to process")))};
         let data_store = Arc::new(a1_data);
-        let mut a1 = Agent::new(start_state, data_store);
+        let mut a1 = CloneAgent::new(start_state, data_store);
         
-        a1.run();
+        a1.run_clone();
         a1.state_changed();
         assert!(a1.finish().is_ok_and(|status| status == AgentRunStatus::Success));
     }
@@ -197,7 +197,7 @@ mod normative_test {
 
         struct DataSafeVec {
             stored_nums: Arc<Mutex<Vec<usize>>>,
-            target_agent: Arc<Mutex<Weak<Agent<DataSafeVec>>>>,
+            target_agent: Arc<Mutex<Weak<CloneAgent<DataSafeVec>>>>,
         }
 
         impl StoresSingle<usize> for DataSafeVec {
@@ -212,8 +212,8 @@ mod normative_test {
             }
         }
 
-        impl StoresSingle<Arc<Agent<DataSafeVec>>> for DataSafeVec {
-            fn store(&self, data: Arc<Agent<DataSafeVec>>) {
+        impl StoresSingle<Arc<CloneAgent<DataSafeVec>>> for DataSafeVec {
+            fn store(&self, data: Arc<CloneAgent<DataSafeVec>>) {
                 if let Ok(mut guard) = self.target_agent.lock() {
                     let downgraded_data = Arc::downgrade(&data);
                     *guard = downgraded_data;
@@ -225,16 +225,16 @@ mod normative_test {
             }
         }
 
-        impl MessageTarget<Arc<Agent<DataSafeVec>>> for Agent<DataSafeVec> {
-            fn msg(self: Arc<Agent<DataSafeVec>>, data: Arc<Agent<DataSafeVec>>) {
+        impl MessageTarget<Arc<CloneAgent<DataSafeVec>>> for CloneAgent<DataSafeVec> {
+            fn msg(self: Arc<CloneAgent<DataSafeVec>>, data: Arc<CloneAgent<DataSafeVec>>) {
                 let data_store = self.get_data();
                 data_store.store(data);
                 self.state_changed();
             }
         }
 
-        impl MessageTarget<usize> for Agent<DataSafeVec> {
-            fn msg(self: Arc<Agent<DataSafeVec>>, data: usize) {
+        impl MessageTarget<usize> for CloneAgent<DataSafeVec> {
+            fn msg(self: Arc<CloneAgent<DataSafeVec>>, data: usize) {
                 // Get data store
                 let data_store = self.get_data();
                 // Add the new data
@@ -346,10 +346,10 @@ mod normative_test {
             fn is_abort_state(&self)->bool { true }
         }
 
-        let mut ca_1 = Agent::new(Arc::new(InitState), asd_1.clone());
-        let mut ca_2 = Agent::new(Arc::new(InitState), asd_2.clone());
-        ca_1.run();
-        ca_2.run();
+        let mut ca_1 = CloneAgent::new(Arc::new(InitState), asd_1.clone());
+        let mut ca_2 = CloneAgent::new(Arc::new(InitState), asd_2.clone());
+        ca_1.run_clone();
+        ca_2.run_clone();
         
         let ca_1_arc = Arc::new(ca_1);
         let ca_2_arc = Arc::new(ca_2);
@@ -531,8 +531,8 @@ mod normative_test {
         }
 
         //type AgentRef<T> = Arc<RwLock<T>>;
-        type InputAgent = Agent<InputAgentDS>;
-        type ReaderAgent = Agent<ReaderAgentDS>;
+        type InputAgent = CloneAgent<InputAgentDS>;
+        type ReaderAgent = CloneAgent<ReaderAgentDS>;
 
         // Define agents
         struct InputAgentDS {
@@ -627,7 +627,7 @@ mod normative_test {
         }
         
         let mut ra1 = ReaderAgent::create();
-        ra1.run();
+        ra1.run_clone();
         let reader_data = ra1.get_data();
         let ra1_ref_opt = ra1.get_ref();
         let ra1_ref;
@@ -643,8 +643,8 @@ mod normative_test {
         let mut ia1 = InputAgent::create(ra1_ref.clone());
         let mut ia2 = InputAgent::create(ra1_ref.clone());
         // Run the agents
-        ia1.run();
-        ia2.run();
+        ia1.run_clone();
+        ia2.run_clone();
 
         for i in 0..10{
             if i % 2==0 {
@@ -717,7 +717,7 @@ mod normative_test {
                 }
             }
         }
-        impl<'a> FromConfig<SimpleAgentConfig<'a>> for SimpleAgentData {
+        impl<'a> FromConfigClone<SimpleAgentConfig<'a>> for SimpleAgentData {
             fn from_config(c: &SimpleAgentConfig<'a>)->Arc<Self> {
                 Arc::new(SimpleAgentData {name: c.name.to_string(), repeats: RwLock::new(5)})
             }
@@ -728,7 +728,7 @@ mod normative_test {
         }
         
         let config1 = SimpleAgentConfig { name: "agent 1"};
-        let ap = AgentProgram::<SimpleAgentConfig, SimpleAgentData>::start(&config1);
+        let ap = CloneAgentProgram::<SimpleAgentConfig, SimpleAgentData>::start(&config1);
         assert!(ap.is_ok());
        
         match ap {
@@ -934,7 +934,7 @@ mod normative_test {
             }
         }
 
-        impl FromConfig<MyConfig> for MyData {
+        impl FromConfigClone<MyConfig> for MyData {
             fn from_config(c: &MyConfig)->Arc<Self> {
                 Arc::new(MyData {_val: c.val})
             }
@@ -943,7 +943,7 @@ mod normative_test {
                 Arc::new(MyState)
             }
         }
-        let ap = AgentProgram::<MyConfig, MyData>::start(&config);
+        let ap = CloneAgentProgram::<MyConfig, MyData>::start(&config);
         let agent_program;
         match ap {
             Ok(_agent_program) => {
@@ -989,9 +989,9 @@ pub(crate) mod agent_program_setup {
     pub mod normative_agent_program_messages {
         use std::sync::{Arc, RwLock};
 
-        use crate::{agent_program::{AgentProgram, FromConfig}, state::State};
-        pub fn _create_master(config: &MasterConfig)->AgentProgram<MasterConfig, MasterData> {
-            AgentProgram::<MasterConfig, MasterData>::start(config).unwrap()
+        use crate::{agent_program::{CloneAgentProgram, FromConfigClone}, state::State};
+        pub fn _create_master(config: &MasterConfig)->CloneAgentProgram<MasterConfig, MasterData> {
+            CloneAgentProgram::<MasterConfig, MasterData>::start(config).unwrap()
         }
         #[derive(Debug)]
         pub struct MasterConfig {
@@ -1020,7 +1020,7 @@ pub(crate) mod agent_program_setup {
             }
         }
 
-        impl FromConfig<MasterConfig> for MasterData {
+        impl FromConfigClone<MasterConfig> for MasterData {
             fn from_config(_c: &MasterConfig)->Arc<Self> {
                 Arc::new(
                     MasterData {

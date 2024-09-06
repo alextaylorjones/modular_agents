@@ -12,3 +12,7 @@ edition = "2021"
 # codegen-units = 1
 # strip = true  # Automatically strip symbols from the binary.
 # panic = "abort"
+
+[features]
+default = ["history"]
+history = []
