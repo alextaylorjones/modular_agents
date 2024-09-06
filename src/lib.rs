@@ -13,7 +13,7 @@ pub fn thread_info()->String{
 }
 
 #[cfg(test)]
-mod tests {
+mod normative_test {
     use std::{sync::{atomic::{AtomicIsize, AtomicUsize}, Arc, Mutex, RwLock, Weak}, thread::{self}, time::Duration};
     use agent::{Agent, AgentRef, AgentRunStatus, AgentThreadStatus};
     use agent_program::{AgentProgram, FromConfig};
@@ -962,12 +962,16 @@ mod tests {
         assert!(agent_program.get_status() == AgentThreadStatus::Joined);
         assert!(agent_program.complete().is_ok());
     }
-    #[test]
-    fn normative_agent_program_messages(){
+    /// Test the stable configurations for a basic 
+    #[test] fn normative_agent_program_stable_configs(){
         use agent_program_setup::normative_agent_program_messages::{MasterConfig, MasterData};
-        let test_configs = [(MasterConfig {}, MasterData::empty())];
+        // Test config data: Config->
+        let test_configs = [(
+            MasterConfig {}, MasterData::empty()),
+        ];
         for (config, expected) in &test_configs {
             let master = _create_master(config);
+            
             match master.stop() {
                 Ok(res) => {
                     assert_eq!(expected, res);
@@ -985,7 +989,7 @@ pub(crate) mod agent_program_setup {
     pub mod normative_agent_program_messages {
         use std::sync::{Arc, RwLock};
 
-        use crate::{agent::Agent, agent_program::{AgentProgram, FromConfig}, state::{State, StateChanged}};
+        use crate::{agent_program::{AgentProgram, FromConfig}, state::State};
         pub fn _create_master(config: &MasterConfig)->AgentProgram<MasterConfig, MasterData> {
             AgentProgram::<MasterConfig, MasterData>::start(config).unwrap()
         }
@@ -1025,7 +1029,7 @@ pub(crate) mod agent_program_setup {
                 )
             }
         
-            fn start_state(c: &MasterConfig)->Arc<dyn crate::state::State<Self>> {
+            fn start_state(_c: &MasterConfig)->Arc<dyn crate::state::State<Self>> {
                 Arc::new(
                     MasterInitState
                 )
@@ -1033,60 +1037,52 @@ pub(crate) mod agent_program_setup {
         }
 
         impl State<MasterData> for MasterInitState {
-            
+            // No implementations
         }
         #[derive(Debug, PartialEq)]
         struct MasterWorkRequest;
         impl From<WorkConfig> for MasterWorkRequest {
-            fn from(value: WorkConfig) -> Self {
+            fn from(_value: WorkConfig) -> Self {
                 MasterWorkRequest {}
             }
         }
         struct WorkConfig;
-        struct WorkResult;
+        // struct WorkResult;
 
-        enum WorkRequest {
-            Pending(WorkConfig),
-            Finished(WorkResult)
-        }
+        // enum WorkRequest {
+        //     Pending(WorkConfig),
+        //     Finished(WorkResult)
+        // }
 
-        trait Msg<T> {
-            fn msg(&self, t: T);
-            fn msg_internal(&self, t:T) where Self: StateChanged {
-                self.msg(t);
-                self.state_changed();
-            }
-        }
-        trait Process<T> {
-            fn process(self: Arc<Self>, t: T);
-        }
-
-        impl Process<WorkConfig> for MasterData {
-            fn process(self: Arc<Self>, t: WorkConfig) {
-                let lock = &self.new_requests;
-                let mut guard = lock.write().unwrap_or_else(|mut e| {
-                    **e.get_mut() = Vec::new();
-                    lock.clear_poison();
-                    e.into_inner()
-                });
-                guard.push(MasterWorkRequest::from(t));
-            }
-        }
-
-        impl Msg<WorkConfig> for Agent<MasterData> {
-            fn msg(&self, t: WorkConfig) {
-                let dc = self.get_data();
-                dc.process(t);
-            }
-        }
+        // trait Msg<T> {
+        //     fn msg(&self, t: T);
+        //     fn msg_internal(&self, t:T) where Self: StateChanged {
+        //         self.msg(t);
+        //         self.state_changed();
+        //     }
+        // }
+        // pub trait Process<T> {
+        //     fn process(self: Arc<Self>, t: T);
+        // }
+        // impl Process<WorkConfig> for MasterData {
+        //     fn process(self: Arc<Self>, t: WorkConfig) {
+        //         let lock = &self.new_requests;
+        //         let mut guard = lock.write().unwrap_or_else(|mut e| {
+        //             **e.get_mut() = Vec::new();
+        //             lock.clear_poison();
+        //             e.into_inner()
+        //         });
+        //         guard.push(MasterWorkRequest::from(t));
+        //     }
+        // }
+        // impl Msg<WorkConfig> for Agent<MasterData> {
+        //     fn msg(&self, t: WorkConfig) {
+        //         let dc = self.get_data();
+        //         dc.process(t);
+        //     }
+        // }
         #[derive(Debug)]
         struct MasterInitState;
-        #[derive(Debug)]
-        struct MasterManageState;
-
-        struct SlaveData {
-
-        }
 
 
         

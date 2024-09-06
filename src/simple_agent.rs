@@ -237,7 +237,7 @@ mod test{
                     *this.data.val.write().unwrap() += 1;
                 } else if n == usize::MAX {
                     {
-                        let r = this.data.val.write();
+                        let _r = this.data.val.write();
                         panic!("forced panic with write guard");
                     }
                 } else {
