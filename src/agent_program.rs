@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, sync::Arc, thread};
+use std::{marker::PhantomData, sync::Arc};
 
 use crate::{agent::{Agent, AgentRef, AgentRunStatus, AgentThreadStatus}, state::{State, StateChanged}};
 

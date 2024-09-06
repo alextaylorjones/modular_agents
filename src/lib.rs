@@ -17,7 +17,7 @@ mod tests {
     use std::{sync::{atomic::{AtomicIsize, AtomicUsize}, Arc, Mutex, RwLock, Weak}, thread::{self}, time::Duration};
     use agent::{Agent, AgentRef, AgentRunStatus, AgentThreadStatus};
     use agent_program::{AgentProgram, FromConfig};
-    use agent_program_setup::normative_agent_program_messages::create_master;
+    use agent_program_setup::normative_agent_program_messages::_create_master;
     use message::{MessageTarget, StoresSingle};
     use state::{State, StateChanged};
     
@@ -967,7 +967,7 @@ mod tests {
         use agent_program_setup::normative_agent_program_messages::{MasterConfig, MasterData};
         let test_configs = [(MasterConfig {}, MasterData::empty())];
         for (config, expected) in &test_configs {
-            let master = create_master(config);
+            let master = _create_master(config);
             match master.stop() {
                 Ok(res) => {
                     assert_eq!(expected, res);
@@ -978,29 +978,15 @@ mod tests {
             }
         }        
     }
-    #[test]
-    fn unwrap_test(){
-        trait MyTrait {
-            fn do_thing(&self) {
-                println!("do");
-            }
-        }
-
-        fn translate(state: Arc<&dyn MyTrait>){
-            let s = Arc::unwrap_or_clone(state);
-            s.do_thing();
-        }
-        
-    }
     // Todo: Agent upgrade
 }
 
 pub(crate) mod agent_program_setup {
     pub mod normative_agent_program_messages {
-        use std::sync::{Arc, Mutex, RwLock};
+        use std::sync::{Arc, RwLock};
 
-        use crate::{agent::{Agent, AgentRef}, agent_program::{AgentProgram, FromConfig}, state::{State, StateChanged}};
-        pub fn create_master(config: &MasterConfig)->AgentProgram<MasterConfig, MasterData> {
+        use crate::{agent::Agent, agent_program::{AgentProgram, FromConfig}, state::{State, StateChanged}};
+        pub fn _create_master(config: &MasterConfig)->AgentProgram<MasterConfig, MasterData> {
             AgentProgram::<MasterConfig, MasterData>::start(config).unwrap()
         }
         #[derive(Debug)]
@@ -1031,7 +1017,7 @@ pub(crate) mod agent_program_setup {
         }
 
         impl FromConfig<MasterConfig> for MasterData {
-            fn from_config(c: &MasterConfig)->Arc<Self> {
+            fn from_config(_c: &MasterConfig)->Arc<Self> {
                 Arc::new(
                     MasterData {
                         new_requests: RwLock::new(Vec::new())
