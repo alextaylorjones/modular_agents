@@ -3,6 +3,8 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Arc;
 use std::thread::{self, Thread};
 
+use crate::agent_program::SignalSized;
+
 /// A thread-safe permit store. Allows multiple client threads to release permits, and a single owner thread to acquire permits.
 #[derive(Clone, Debug)]
 pub struct PermitStore {
@@ -10,30 +12,50 @@ pub struct PermitStore {
     owner_thread: Thread,
 }
 
+pub type AtomicSizedType = AtomicIsize;
+
 impl PermitStore {
     /// Creates a new permit store with `init_permits` free permits, associated with the current (calling) thread.
     pub fn new(init_permits: isize)->Self {
-        PermitStore { permits: Arc::new(AtomicIsize::new(init_permits)), owner_thread: thread::current()}
+        PermitStore { permits: Arc::new(AtomicSizedType::new(init_permits)), owner_thread: thread::current()}
     }
     /// Released a permit to the store. Can be called by any thread.
-    pub fn release_permit(&self) {
-        // Add a permit to the store
-        self.permits.fetch_add(1, Ordering::Relaxed);
+    pub fn release_permit(&self)->SignalSized {
         // Unpark the owner thread (or add an unpark to future parks)
         self.owner_thread.unpark();
+        // Add a permit to the store
+        self.permits.fetch_add(1, Ordering::Relaxed)
     }
     /// Waits for a free permit from the permit store. Blocks until one is available.
     /// Should be called inside the thread that instantiated the store.
-    pub fn acquire_permit(&self) {
+    pub fn acquire_permit(&self)->SignalSized {
         // Optional check -- make sure that only the owner thread can acquire the state
-        if thread::current().id() != self.owner_thread.id() {
-            panic!("can't use state this way");
-        }
+        // if thread::current().id() != self.owner_thread.id() {
+        //     panic!("can't use state this way");
+        // }
         while self.permits.load(Ordering::Relaxed) <= 0 {
             thread::park();
         }
-        self.permits.fetch_sub(1, Ordering::Relaxed);
+        self.permits.fetch_sub(1, Ordering::Relaxed)
     }
+    // Should be called inside the thread that instantiated the store.
+    // pub fn acquire_and(&self, a: SignalSized)->SignalSized {
+    //     // Optional check -- make sure that only the owner thread can acquire the state
+    //     // if thread::current().id() != self.owner_thread.id() {
+    //     //     panic!("can't use state this way");
+    //     // }
+    //     while self.permits.load(Ordering::Relaxed) != 0 {
+    //         thread::park();
+    //     }
+    //     self.permits.fetch_and(a, Ordering::Relaxed)
+    // }
+
+    // pub fn release_or(&self, r: SignalSized)-> SignalSized {
+    //     self.owner_thread.unpark();
+    //     // Add a permit to the store
+    //     self.permits.fetch_or(r, Ordering::Relaxed)
+    //     // Unpark the owner thread (or add an unpark to future parks)
+    // }
 }
 
 #[cfg(test)]

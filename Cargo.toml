@@ -14,5 +14,6 @@ edition = "2021"
 # panic = "abort"
 
 [features]
-default = ["history"]
+default = ["64bit"]
 history = []
+64bit = []

@@ -1,4 +1,5 @@
 pub mod permit_store;
+pub mod rmbags;
 pub mod agent;
 pub mod state;
 pub mod message;
@@ -12,17 +13,316 @@ pub fn thread_info()->String{
     return format!("<{:?}>",std::thread::current().id());
 }
 
+pub(crate) mod agent_program_setup {
+    pub mod normative_clone_agent_program {
+        use std::sync::{Arc, RwLock};
+        use crate::{agent_program::{CloneAgentProgram, FromConfigClone}, state::State};
+        pub fn _create_master(config: &MasterConfig)->CloneAgentProgram<MasterConfig, MasterData> {
+            CloneAgentProgram::<MasterConfig, MasterData>::start(config).unwrap()
+        }
+        #[derive(Debug)]
+        pub struct MasterConfig {   
+        }
+        #[derive(Debug)]
+        pub struct MasterData {
+            new_requests: RwLock<Vec<MasterWorkRequest>>,
+        }
+        impl PartialEq<Arc<MasterData>> for &MasterData {
+            fn eq(&self, other: &Arc<MasterData>) -> bool {
+
+                let md = &*self.new_requests.read().unwrap();
+                let md2 = &*other.new_requests.read().unwrap();
+                md == md2                
+            }
+        }
+        impl MasterData {
+            pub fn empty()->Self{
+                Self::new(Vec::new())
+            }
+            fn new(v: Vec<MasterWorkRequest>)->Self{
+                MasterData {
+                    new_requests: RwLock::new(v)
+                }
+            }
+        }
+
+        impl FromConfigClone<MasterConfig> for MasterData {
+            fn from_config(_c: &MasterConfig)->Arc<Self> {
+                Arc::new(
+                    MasterData {
+                        new_requests: RwLock::new(Vec::new())
+                    } 
+                )
+            }
+        
+            fn start_state(_c: &MasterConfig)->Arc<dyn crate::state::State<Self>> {
+                Arc::new(
+                    MasterInitState
+                )
+            }
+        }
+
+        impl State<MasterData> for MasterInitState {
+            // No implementations
+        }
+        #[derive(Debug, PartialEq)]
+        struct MasterWorkRequest;
+        impl From<WorkConfig> for MasterWorkRequest {
+            fn from(_value: WorkConfig) -> Self {
+                MasterWorkRequest {}
+            }
+        }
+        struct WorkConfig;
+        #[derive(Debug)]
+        struct MasterInitState;
+    }
+    pub mod normative_move_agent_program {
+        use std::sync::{Arc, Mutex};
+
+        use crate::{agent_program::FromConfigMove, state::State};
+
+                
+       // States
+       #[derive(Debug)] pub struct AgentStandbyState {
+            waited: bool
+       }
+
+       #[derive(Debug)] pub struct AgentWorkState;
+       #[derive(Debug)] pub struct AgentFinishState;
+       // Agent data 
+       #[derive(Debug)] pub struct ADConfig {
+           pub start_val: usize,
+           pub name: String,
+           pub context: String,
+       }
+       #[derive(Debug)] pub struct AgentData {
+           sync_val: Mutex<usize>,
+           name: String,
+           context: String,
+       }
+       // Configuration for agent data
+       impl FromConfigMove<ADConfig> for AgentData {
+           fn from_config(c: ADConfig)-> Arc<Self> {
+               Arc::new(AgentData {
+                   sync_val: Mutex::new(c.start_val),
+                   name: c.name, 
+                   context: c.context,
+               })
+           }
+       
+           fn start_state()->Arc<dyn State<Self>> {
+               Arc::new(AgentWorkState)
+           }  
+       }
+       
+       // State behavior for InitState
+       impl State<AgentData> for AgentWorkState {
+           fn pick_and_execute_an_action(self: Arc<Self>, _data: &Arc<AgentData>)->Option<Arc<dyn State<AgentData>>> {
+                println!("Work state");
+                {
+                   //println!("Init state {:?}", &_data.clone());
+                   let lock = _data.sync_val.lock();
+                   match lock {
+                       Ok(mut guarded) => {
+                        // Finish flag
+                        if *guarded < 10 {
+                            *guarded += 1;
+                            Some(self) //continue in the same state
+                        } else {
+                            Some(Arc::new(AgentStandbyState { waited: false }))
+                        }
+                       },
+                       Err(_err) => {
+                           println!("Finish the agent if the data is poisoned");
+                           Some(Arc::new(AgentFinishState))
+                       },
+                   }    
+               }
+           }
+       }
+       impl State<AgentData> for AgentFinishState {
+           fn pick_and_execute_an_action(self: Arc<Self>, _data: &Arc<AgentData>)->Option<Arc<dyn State<AgentData>>> {
+               println!("Finish state {:?}", &_data.clone());
+               None
+           }
+           fn is_force_abort_state(&self)->bool {
+               println!("Checking for abort");
+               true
+           }
+       }
+       impl State<AgentData> for AgentStandbyState {
+            fn pick_and_execute_an_action(self: Arc<Self>, _data: &Arc<AgentData>)->Option<Arc<dyn State<AgentData>>> {
+                println!("Standby state"); 
+                // The first time we go into standby
+                // don't run scheduler again
+                if !self.waited {
+                    Some(Arc::new(AgentStandbyState { waited: true }))
+                } else {
+                    Some(Arc::new(AgentFinishState))
+                }
+            }
+       }
+
+    }
+}
+
 #[cfg(test)]
 mod normative_test {
-    use std::{sync::{atomic::{AtomicIsize, AtomicUsize}, Arc, Mutex, RwLock, Weak}, thread::{self}, time::Duration};
+    use std::{sync::{atomic::{AtomicIsize, AtomicUsize}, Arc, Mutex, MutexGuard, PoisonError, RwLock, Weak}, thread::{self}, time::Duration};
     use agent::{CloneAgent, AgentRef, AgentRunStatus, AgentThreadStatus};
-    use agent_program::{CloneAgentProgram, FromConfigClone};
-    use agent_program_setup::normative_agent_program_messages::_create_master;
-    use message::{MessageTarget, StoresSingle};
+    use agent_program::{CloneAgentProgram, FromConfigClone, FromConfigMove, MoveAgentProgram};
+    use agent_program_setup::normative_clone_agent_program::_create_master;
+    use message::{DefaultMessageError, MessageTarget, StoresSingle};
     use state::{State, StateChanged};
     
     use super::*;
+    #[test] 
+    fn move_agent_abort(){
+       use crate::agent_program_setup::normative_move_agent_program::*;
+       let config = ADConfig {
+           start_val: 1,
+           name: "agent 1".to_string(),
+           context: "crate::normative_test::move_agent_abort".to_string()
+        };
+        
 
+       let res_abort_called = MoveAgentProgram::<ADConfig,AgentData>::run_move(config);
+       match res_abort_called {
+           Ok(moveap) => {
+               assert!(!moveap.is_thread_finished());
+               moveap.abort();
+               // Calling finish waits on the program to complete
+               if let Some(data) = moveap.finish() {
+                   println!("Consumed [{:?}][]",&data);
+               } else {
+                   println!("Failed to consume");
+                   assert!(false, "Failed to consume the agent");
+               }
+           },
+           Err(err) => {
+               let error = err;
+               match error {
+                   agent_program::AgentProgramError::NoRef => todo!(),
+                   agent_program::AgentProgramError::AgentRunError(_) => todo!(),
+                   agent_program::AgentProgramError::AgentRunning(_) => todo!(),
+                   agent_program::AgentProgramError::AgentErrorState(_) => todo!(),
+                   agent_program::AgentProgramError::NoPermits => todo!(),
+                   agent_program::AgentProgramError::NoData => todo!(),
+               }
+           },
+       }      
+    
+    }
+    #[test]
+    fn ref_struct_fn(){
+
+    }
+    #[test]
+    fn normative_move_agent_multi_state(){
+        // #[derive(PartialEq)]
+        // enum StateTrans {
+        //     Nop,
+        //     GoToHighPriority,
+        //     GoToLowPriority,
+        //     GotoAbort
+        // }
+
+        // struct ProcessorAgentData {
+        //     transition_requests: Mutex<Vec<StateTrans>>
+        // }
+        // impl ProcessorAgentData {
+        //     pub fn safe_pop(self: &Arc<Self>)->StateTrans {
+        //         match self.transition_requests.lock() {
+        //             Ok(mut trg) => {
+        //                 match trg.pop() {
+        //                     Some(tr) => {
+        //                         return tr;
+        //                     },
+        //                     None => {
+        //                         return StateTrans::Nop;
+        //                     },
+        //                 }
+        //             },
+        //             Err(_) => {
+        //                 self.transition_requests.clear_poison();
+        //                 StateTrans::Nop
+        //             },
+        //         }
+        //     }
+        // }
+        // #[derive(Debug)] struct StateInit;
+        // #[derive(Debug)] struct StateA;
+        // impl State<ProcessorAgentData> for StateA{}
+
+        // #[derive(Debug)] struct StateB;
+        // impl State<ProcessorAgentData> for StateB{
+        //     fn pick_and_execute_an_action(self: Arc<Self>, _data: &Arc<ProcessorAgentData>)->Option<Arc<dyn State<ProcessorAgentData>>> {
+        //         Some(Arc::new(StateClear))
+        //     }
+        // }
+        // #[derive(Debug)] struct StateAbort;
+        // impl State<ProcessorAgentData> for StateAbort {
+        //     fn is_force_abort_state(&self)->bool { true }
+        // }
+        
+        // impl State<ProcessorAgentData> for StateInit {
+        //     fn pick_and_execute_an_action(self: Arc<Self>, _data: &Arc<ProcessorAgentData>)->Option<Arc<dyn State<ProcessorAgentData>>> {
+        //         // Grab 0 or 1 transitions
+        //         let transition = _data.safe_pop();
+        //         match transition {
+        //             StateTrans::GotoAbort => Some(Arc::new(StateAbort)),
+        //             StateTrans::Nop => None,
+        //             StateTrans::GoToHighPriority => todo!(),
+        //             StateTrans::GoToLowPriority => todo!(),
+        //         }
+        //     }
+        // }
+
+
+
+
+    }
+    #[test]
+    fn move_agent_graceful_end(){        
+        use crate::agent_program_setup::normative_move_agent_program::*;
+        let config = ADConfig {
+            start_val: 1,
+            name: "agent 1".to_string(),
+            context: "crate::normative_test::move_agent_it_works".to_string()
+         };
+        
+ 
+        let res_abort_called = MoveAgentProgram::<ADConfig,AgentData>::run_move(config);
+        match res_abort_called {
+            Ok(moveap) => {
+                assert!(!moveap.is_thread_finished());
+                // Poking wakes up the scheduler
+                moveap.poke();
+                assert!(!moveap.is_thread_finished());
+                moveap.abort();
+                // Calling finish waits on the program to complete
+                if let Some(data) = moveap.finish() {
+                    println!("Consumed [{:?}][]",&data);
+                } else {
+                    println!("Failed to consume");
+                    assert!(false, "Failed to consume the agent");
+                }
+            },
+            Err(err) => {
+                let error = err;
+                match error {
+                    agent_program::AgentProgramError::NoRef => todo!(),
+                    agent_program::AgentProgramError::AgentRunError(_) => todo!(),
+                    agent_program::AgentProgramError::AgentRunning(_) => todo!(),
+                    agent_program::AgentProgramError::AgentErrorState(_) => todo!(),
+                    agent_program::AgentProgramError::NoPermits => todo!(),
+                    agent_program::AgentProgramError::NoData => todo!(),
+                }
+            },
+        }      
+     
+    }
+    // Todo: Agent upgrade
     #[test]
     fn normative_one_agent_one_state() {
         struct AgentData {
@@ -73,6 +373,7 @@ mod normative_test {
                 None
             }
         }
+
         impl State<AgentData> for MyAgentStartState {
             fn pick_and_execute_an_action(self: Arc<Self>, data: &std::sync::Arc<AgentData>)->Option<std::sync::Arc<dyn State<AgentData>>> {
                 _print_thread_info();
@@ -81,11 +382,11 @@ mod normative_test {
                 Some(fs)
             }
         }
+
         let start_state = Arc::new(MyAgentStartState);
         let a1_data = AgentData {my_stored_val: AtomicUsize::new(10)};
         let data_store = Arc::new(a1_data);
         let mut a1 = CloneAgent::new(start_state, data_store);
-        
         a1.run_clone();
         assert!(a1.has_valid_handle());
         a1.state_changed();
@@ -179,7 +480,7 @@ mod normative_test {
             fn pick_and_execute_an_action(self: Arc<Self>, _data: &Arc<AgentStringData>)->Option<Arc<dyn State<AgentStringData>>> {
                 None
             }
-            fn is_abort_state(&self)->bool {
+            fn is_force_abort_state(&self)->bool {
                 true
             }
         }
@@ -243,18 +544,14 @@ mod normative_test {
                 self.state_changed();
             }
         }
-
         let asd_1 = Arc::new(DataSafeVec { stored_nums: Arc::new(Mutex::new(vec![1,2,3])), target_agent: Arc::new(Mutex::new(Weak::new())) });
         let asd_2 = Arc::new(DataSafeVec { stored_nums: Arc::new(Mutex::new(vec![4,5,6])), target_agent: Arc::new(Mutex::new(Weak::new())) });
-        
         #[derive(Debug)]
         struct InitState;
         #[derive(Debug)]
         struct DeliverState;
         #[derive(Debug)]
         struct FinishState;
-    
-
         impl State<DataSafeVec> for DeliverState {
             fn pick_and_execute_an_action(self: Arc<Self>, data: &Arc<DataSafeVec>)->Option<Arc<dyn State<DataSafeVec>>> {
                 println!("{} in deliver state, currently storing {:?}", thread_info(), &data.stored_nums.lock().unwrap());
@@ -343,7 +640,7 @@ mod normative_test {
                 // Always exit
                 None
             }
-            fn is_abort_state(&self)->bool { true }
+            fn is_force_abort_state(&self)->bool { true }
         }
 
         let mut ca_1 = CloneAgent::new(Arc::new(InitState), asd_1.clone());
@@ -680,7 +977,7 @@ mod normative_test {
         #[derive(Debug)]
         struct FinishState;
         impl State<SimpleAgentData> for FinishState{
-            fn is_abort_state(&self)->bool {
+            fn is_force_abort_state(&self)->bool {
                 true
             }
         }
@@ -929,7 +1226,7 @@ mod normative_test {
                 println!("Finished scheduler");
                 None
             }
-            fn is_abort_state(&self)->bool {
+            fn is_force_abort_state(&self)->bool {
                 true
             }
         }
@@ -964,7 +1261,7 @@ mod normative_test {
     }
     /// Test the stable configurations for a basic 
     #[test] fn normative_agent_program_stable_configs(){
-        use agent_program_setup::normative_agent_program_messages::{MasterConfig, MasterData};
+        use agent_program_setup::normative_clone_agent_program::{MasterConfig, MasterData};
         // Test config data: Config->
         let test_configs = [(
             MasterConfig {}, MasterData::empty()),
@@ -982,112 +1279,5 @@ mod normative_test {
             }
         }        
     }
-    // Todo: Agent upgrade
-}
 
-pub(crate) mod agent_program_setup {
-    pub mod normative_agent_program_messages {
-        use std::sync::{Arc, RwLock};
-
-        use crate::{agent_program::{CloneAgentProgram, FromConfigClone}, state::State};
-        pub fn _create_master(config: &MasterConfig)->CloneAgentProgram<MasterConfig, MasterData> {
-            CloneAgentProgram::<MasterConfig, MasterData>::start(config).unwrap()
-        }
-        #[derive(Debug)]
-        pub struct MasterConfig {
-            
-        }
-        #[derive(Debug)]
-        pub struct MasterData {
-            new_requests: RwLock<Vec<MasterWorkRequest>>,
-        }
-        impl PartialEq<Arc<MasterData>> for &MasterData {
-            fn eq(&self, other: &Arc<MasterData>) -> bool {
-
-                let md = &*self.new_requests.read().unwrap();
-                let md2 = &*other.new_requests.read().unwrap();
-                md == md2                
-            }
-        }
-        impl MasterData {
-            pub fn empty()->Self{
-                Self::new(Vec::new())
-            }
-            fn new(v: Vec<MasterWorkRequest>)->Self{
-                MasterData {
-                    new_requests: RwLock::new(v)
-                }
-            }
-        }
-
-        impl FromConfigClone<MasterConfig> for MasterData {
-            fn from_config(_c: &MasterConfig)->Arc<Self> {
-                Arc::new(
-                    MasterData {
-                        new_requests: RwLock::new(Vec::new())
-                    } 
-                )
-            }
-        
-            fn start_state(_c: &MasterConfig)->Arc<dyn crate::state::State<Self>> {
-                Arc::new(
-                    MasterInitState
-                )
-            }
-        }
-
-        impl State<MasterData> for MasterInitState {
-            // No implementations
-        }
-        #[derive(Debug, PartialEq)]
-        struct MasterWorkRequest;
-        impl From<WorkConfig> for MasterWorkRequest {
-            fn from(_value: WorkConfig) -> Self {
-                MasterWorkRequest {}
-            }
-        }
-        struct WorkConfig;
-        // struct WorkResult;
-
-        // enum WorkRequest {
-        //     Pending(WorkConfig),
-        //     Finished(WorkResult)
-        // }
-
-        // trait Msg<T> {
-        //     fn msg(&self, t: T);
-        //     fn msg_internal(&self, t:T) where Self: StateChanged {
-        //         self.msg(t);
-        //         self.state_changed();
-        //     }
-        // }
-        // pub trait Process<T> {
-        //     fn process(self: Arc<Self>, t: T);
-        // }
-        // impl Process<WorkConfig> for MasterData {
-        //     fn process(self: Arc<Self>, t: WorkConfig) {
-        //         let lock = &self.new_requests;
-        //         let mut guard = lock.write().unwrap_or_else(|mut e| {
-        //             **e.get_mut() = Vec::new();
-        //             lock.clear_poison();
-        //             e.into_inner()
-        //         });
-        //         guard.push(MasterWorkRequest::from(t));
-        //     }
-        // }
-        // impl Msg<WorkConfig> for Agent<MasterData> {
-        //     fn msg(&self, t: WorkConfig) {
-        //         let dc = self.get_data();
-        //         dc.process(t);
-        //     }
-        // }
-        #[derive(Debug)]
-        struct MasterInitState;
-
-
-        
-
-
-        
-    }
 }

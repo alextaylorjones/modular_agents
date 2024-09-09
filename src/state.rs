@@ -1,4 +1,4 @@
-use std::{cell::RefCell, path::Iter, rc::Rc, sync::Arc, thread};
+use std::{rc::Rc, sync::Arc};
 
 /// A trait which we can our scheduler `pick_and_execute_an_action`. Optionally, we can overwrite the `is_abort_state` to signal
 /// that a state is a terminal state in the state machine. States should be lightweight and memory-less (leaving a state invalidates all state-specific memory)
@@ -13,11 +13,11 @@ pub trait State<Data>
     fn pick_and_execute_an_action(self: Arc<Self>, _data: &Arc<Data>)->Option<Arc<dyn State<Data>>> {
         None
     }
-    fn pick_and_execute_an_action_move(self: &mut Self, _data: &Arc<Data>)->Option<Rc<RefCell<dyn State<Data>>>> {
-        None
-    }
+    // fn pick_and_execute_an_action_move(self: &mut Self, _data: &Arc<Data>)->Option<Rc<RefCell<dyn State<Data>>>> {
+    //     None
+    // }
     /// Allows the state to auto-trigger an abort sequence
-    fn is_abort_state(&self)->bool {
+    fn is_force_abort_state(&self)->bool {
         false
     }
 }
@@ -53,13 +53,13 @@ pub trait StateChanged {
 
 pub type SchedulerReturn<T> = Option<Arc<dyn State<T>>>;
 /// Stores a representation of the current state and controls how the state evolves by clone-on
-pub struct AgentStateMachine<T> {
+pub struct CloneAgentStateMachine<T> {
     cur: Arc<dyn State<T>>
 }
 
 pub struct MoveAgentStateMachine<T> {
     cur: Arc<dyn State<T>>,
-    history: Vec<Rc<dyn State<T>>>,
+    _history: Vec<Arc<dyn State<T>>>,
 }
 
 // pub trait MovableState<T> where T: Send + Sync, Self: State<T> {
@@ -68,26 +68,14 @@ pub struct MoveAgentStateMachine<T> {
 
 impl<T: Send + Sync + 'static> MoveAgentStateMachine<T> {
     pub fn new(cur: Arc<dyn State<T>>)->Self {
-        MoveAgentStateMachine { cur, history: Vec::new() }
-    }       
-    pub fn advance_state_move(state: Rc<RefCell<dyn State<T>>>, _data: &Arc<T>)->Option<Rc<RefCell<dyn State<T>>>> {
-        let state = state.try_borrow_mut();
-        match state {
-            Ok(mut _unwrapped) => {
-                 match _unwrapped.pick_and_execute_an_action_move(_data) {
-                    Some(state_rc) => {
-                        return Some(state_rc);
-                    },
-                    None => return None,
-                }
-            },
-            Err(_err) =>  {
-                println!("Borring mut error in moveagentstate");
-                return None;
-            }
-        }
+        MoveAgentStateMachine { cur, _history: Vec::new() }
     }
-    
+    pub fn advance_state_move(state: Arc<dyn State<T>>, data: &Arc<T>)->Option<Arc<dyn State<T>>> {
+        state.pick_and_execute_an_action(data)
+    }
+    pub fn is_abort_state(&self)->bool {
+        self.cur.is_force_abort_state()
+    }
 }
 
 // pub struct Record<T> {
@@ -100,9 +88,9 @@ impl<T: Send + Sync + 'static> MoveAgentStateMachine<T> {
 //     }
 // }
 
-impl<T: Send + Sync + 'static> AgentStateMachine<T> {
+impl<T: Send + Sync + 'static> CloneAgentStateMachine<T> {
     pub fn new(start: Arc<dyn State<T>>)->Self {
-        AgentStateMachine { cur: start }
+        CloneAgentStateMachine { cur: start }
     }
     // pub fn advance_state_move(state: Arc<dyn State<T>>, data: &Arc<T>)->Result<Arc<dyn State<T>>,Arc<dyn State<T>>> {
     //     let next_state = state.pick_and_execute_an_action_move(&data);
@@ -113,7 +101,7 @@ impl<T: Send + Sync + 'static> AgentStateMachine<T> {
     //         },
     //         None => {
     //             //println!("No new work to complete: {:?}->{:?}", &self.cur, &self.cur);
-    //             println!("[AgentStateMachine Thread # {:?}] None State: Strong refs to data {}, Weak refs to data {} ",thread::current(), Arc::strong_count(&data), Arc::weak_count(&data));
+    //             println!("[CloneAgentStateMachine Thread # {:?}] None State: Strong refs to data {}, Weak refs to data {} ",thread::current(), Arc::strong_count(&data), Arc::weak_count(&data));
     //             Ok(state)
     //         },
     //     }
@@ -135,7 +123,7 @@ impl<T: Send + Sync + 'static> AgentStateMachine<T> {
         }
     }
     pub fn is_abort_state(&self)->bool{
-        self.cur.is_abort_state()
+        self.cur.is_force_abort_state()
     }
 }
 
