@@ -5,6 +5,7 @@ pub mod state;
 pub mod message;
 pub mod agent_program;
 pub mod simple_agent;
+pub mod dams;
 
 fn _print_thread_info(){
     print!("<{:?}>",std::thread::current().id());
@@ -179,6 +180,7 @@ mod normative_test {
     #[test] 
     fn move_agent_abort(){
        use crate::agent_program_setup::normative_move_agent_program::*;
+       // Configure our agent data. 
        let config = ADConfig {
            start_val: 1,
            name: "agent 1".to_string(),
@@ -189,15 +191,16 @@ mod normative_test {
        let res_abort_called = MoveAgentProgram::<ADConfig,AgentData>::run_move(config);
        match res_abort_called {
            Ok(moveap) => {
-               assert!(!moveap.is_thread_finished());
-               moveap.abort();
-               // Calling finish waits on the program to complete
-               if let Some(data) = moveap.finish() {
+                //Agent should start running
+                assert!(!moveap.is_thread_finished());
+                moveap.abort();
+                // Calling finish waits on the program to complete
+                if let Some(data) = moveap.finish() {
                    println!("Consumed [{:?}][]",&data);
-               } else {
+                } else {
                    println!("Failed to consume");
                    assert!(false, "Failed to consume the agent");
-               }
+                }
            },
            Err(err) => {
                let error = err;

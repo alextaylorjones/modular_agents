@@ -171,6 +171,8 @@ impl<Data: Send + Sync + 'static> CloneAgent<Data> {
             run_status: None
         }
     }
+    // Generate a new agent behind an arc.
+    
     pub fn new_arc(start_state: Arc<dyn State<Data>>, data_store: Arc<Data>)->Arc<Self>{
         Arc::new(CloneAgent { 
             start_state, 

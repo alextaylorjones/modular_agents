@@ -12,7 +12,6 @@ pub trait MessageStoreConfig<Config>{ }
 pub trait DataPool<T> where T: Send + Sync + 'static { }
 // Scheduler is 
 pub trait Scheduler<T,U> { }
- + 
 pub trait ActionSet {}
 
 // Idea: write example code for a macro that turns the agent code into a state enum

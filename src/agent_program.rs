@@ -34,11 +34,13 @@ pub struct MoveAgentProgram<Config, Data: Send + Sync + 'static> {
 pub struct Signal {
      
 }
-#[cfg(feature = "64bit")]
+
+#[cfg(feature = "word")]
 pub type SignalSized = isize;
 impl Signal {
     pub const ABORT: isize = isize::MAX;
 }
+
 
 impl<Config: Send + 'static, Data: Debug + Send + Sync + 'static + FromConfigMove<Config>> MoveAgentProgram<Config, Data> {
     pub fn is_thread_finished(&self)->bool{
@@ -201,7 +203,7 @@ impl<Config, Data: Send + Sync + 'static> Clone for CloneAgentProgram<Config, Da
 }
 #[derive(Debug)]
 pub enum AgentProgramError<T> {
-    NoRef,
+    NoRef, // No agent reference returned
     AgentRunError(AgentRunStatus),
     AgentRunning(T),
     AgentErrorState(String),
@@ -214,6 +216,7 @@ impl<Config, Data: Send + Sync + 'static + FromConfigClone<Config>> CloneAgentPr
         let start_state = Data::start_state(config);
         let mut agent = CloneAgent::new(start_state, Data::from_config(config));
         agent.run_clone();
+        // IF the permit store and data are ready at the agent, we pass
         let agent_ref = agent.get_ref();
         match agent_ref {
             Some(agent_ref) => {
@@ -226,11 +229,12 @@ impl<Config, Data: Send + Sync + 'static + FromConfigClone<Config>> CloneAgentPr
     pub fn abort(&self){
         self.agent.abort();
     }
-    /// Abort the agent and wait for it to complete. Blocking
+    /// Abort the agent and wait for it to complete. Blocking abort-complete operation.
     pub fn stop(self)->Result<Arc<Data>, AgentProgramError<Self>> {
         self.agent.abort();
         self.complete()
     }
+
     /// Clone the agent reference object
     pub fn get_ref(&self)->AgentRef<Data>{
         self.agent_ref.clone()
@@ -254,7 +258,7 @@ impl<Config, Data: Send + Sync + 'static + FromConfigClone<Config>> CloneAgentPr
         //  Since we can't return `AgentProgramError::AgentRunning(self)` after doing `into_inner` because of a partial move
         //  we use a `Arc::try_unwrap` and the reconstruct the `AgentProgram` from the old agent reference
         
-        // Move the agent out of the arc, if possible
+        // Move the inner agent out of the arc, if possible, or we return an agent running error.
         match Arc::try_unwrap(self.agent) {
             Ok(_agent) => agent = _agent,
             Err(old_arc) => {
@@ -266,7 +270,8 @@ impl<Config, Data: Send + Sync + 'static + FromConfigClone<Config>> CloneAgentPr
             },
         }
 
-        // Finish the agent
+        ///todo: could run a store on the finish
+        // Finish the agent and return the data reference, or an error.
         match agent.finish() {
             Ok(status) => {
                 if status == AgentRunStatus::Success {
